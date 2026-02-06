@@ -17,7 +17,7 @@ struct PersistedState: Codable {
     let nextChange: Date
 }
 
-final class ShiftyApp: NSObject, NSApplicationDelegate {
+final class ShiftyApp: NSObject, NSApplicationDelegate, NSTextFieldDelegate {
     private var statusItem: NSStatusItem!
     private let menu = NSMenu()
     private let currentItem = NSMenuItem(title: "Current: --", action: nil, keyEquivalent: "")
@@ -32,6 +32,7 @@ final class ShiftyApp: NSObject, NSApplicationDelegate {
     private var tickTimer: Timer?
     private var flashTimer: Timer?
     private weak var emojiTargetField: NSTextField?
+    private weak var emojiPreviewLabel: NSTextField?
     private let fileManager = FileManager.default
     private lazy var appSupportDirectory: URL = {
         let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -380,19 +381,22 @@ final class ShiftyApp: NSObject, NSApplicationDelegate {
         alert.addButton(withTitle: "Add")
         alert.addButton(withTitle: "Cancel")
 
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 360, height: 68))
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 360, height: 72))
         let labelField = NSTextField(frame: .zero)
         labelField.placeholderString = "Label (example: WALK)"
-        let iconField = NSTextField(frame: .zero)
-        iconField.placeholderString = "🚶"
-        iconField.alignment = .center
-        let emojiButton = NSButton(title: "😀", target: self, action: #selector(openEmojiPicker))
+        let iconValue = NSTextField(labelWithString: "🔁")
+        iconValue.alignment = .center
+        iconValue.font = NSFont.systemFont(ofSize: 20)
+        let hiddenIconField = NSTextField(frame: .zero)
+        hiddenIconField.isHidden = true
+        hiddenIconField.delegate = self
+        let emojiButton = NSButton(title: "Pick Emoji...", target: self, action: #selector(openEmojiPicker))
         emojiButton.setButtonType(.momentaryPushIn)
         emojiButton.bezelStyle = .rounded
 
         let labelTitle = NSTextField(labelWithString: "Label")
         let iconTitle = NSTextField(labelWithString: "Icon")
-        let row = NSStackView(views: [labelField, iconField, emojiButton])
+        let row = NSStackView(views: [labelField, iconValue, emojiButton])
         row.orientation = .horizontal
         row.spacing = 8
         row.alignment = .centerY
@@ -408,10 +412,12 @@ final class ShiftyApp: NSObject, NSApplicationDelegate {
         content.spacing = 6
         content.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(content)
+        container.addSubview(hiddenIconField)
 
         labelField.translatesAutoresizingMaskIntoConstraints = false
-        iconField.translatesAutoresizingMaskIntoConstraints = false
+        iconValue.translatesAutoresizingMaskIntoConstraints = false
         emojiButton.translatesAutoresizingMaskIntoConstraints = false
+        hiddenIconField.translatesAutoresizingMaskIntoConstraints = false
 
         NSLayoutConstraint.activate([
             content.leadingAnchor.constraint(equalTo: container.leadingAnchor),
@@ -419,25 +425,40 @@ final class ShiftyApp: NSObject, NSApplicationDelegate {
             content.topAnchor.constraint(equalTo: container.topAnchor),
             content.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             labelField.widthAnchor.constraint(equalToConstant: 230),
-            iconField.widthAnchor.constraint(equalToConstant: 52),
-            emojiButton.widthAnchor.constraint(equalToConstant: 50)
+            iconValue.widthAnchor.constraint(equalToConstant: 52),
+            emojiButton.widthAnchor.constraint(equalToConstant: 90),
+            hiddenIconField.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            hiddenIconField.topAnchor.constraint(equalTo: container.topAnchor),
+            hiddenIconField.widthAnchor.constraint(equalToConstant: 0),
+            hiddenIconField.heightAnchor.constraint(equalToConstant: 0)
         ])
 
         alert.accessoryView = container
 
         NSApp.activate(ignoringOtherApps: true)
-        emojiTargetField = iconField
+        emojiTargetField = hiddenIconField
+        emojiPreviewLabel = iconValue
         alert.window.initialFirstResponder = labelField
         let response = alert.runModal()
         emojiTargetField = nil
+        emojiPreviewLabel = nil
         guard response == .alertFirstButtonReturn else { return nil }
-        return (labelField.stringValue, iconField.stringValue)
+        return (labelField.stringValue, hiddenIconField.stringValue)
     }
 
     @objc private func openEmojiPicker() {
         guard let field = emojiTargetField else { return }
         field.window?.makeFirstResponder(field)
         NSApp.orderFrontCharacterPalette(nil)
+    }
+
+    func controlTextDidChange(_ obj: Notification) {
+        guard let field = obj.object as? NSTextField, field === emojiTargetField else { return }
+        let trimmed = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let lastCharacter = trimmed.last else { return }
+        let emoji = String(lastCharacter)
+        field.stringValue = emoji
+        emojiPreviewLabel?.stringValue = emoji
     }
 
     private func showAlert(title: String, message: String) {
