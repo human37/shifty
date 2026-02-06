@@ -31,6 +31,7 @@ final class ShiftyApp: NSObject, NSApplicationDelegate {
     private var baseTitle = ""
     private var tickTimer: Timer?
     private var flashTimer: Timer?
+    private weak var emojiTargetField: NSTextField?
     private let fileManager = FileManager.default
     private lazy var appSupportDirectory: URL = {
         let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -263,24 +264,11 @@ final class ShiftyApp: NSObject, NSApplicationDelegate {
     }
 
     @objc private func addOption() {
-        let rawLabel = promptForInput(
-            title: "Add Option",
-            message: "Label (example: WALK)",
-            confirmTitle: "Next",
-            placeholder: "WALK"
-        )
-        guard let rawLabel else { return }
+        guard let (rawLabel, rawIcon) = promptForNewOption() else { return }
         let normalizedLabel = rawLabel.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         guard !normalizedLabel.isEmpty else { return }
         guard option(label: normalizedLabel) == nil else { return }
-
-        let rawIcon = promptForInput(
-            title: "Add Option",
-            message: "Icon (optional, example: 🚶)",
-            confirmTitle: "Add",
-            placeholder: "🚶"
-        )
-        let normalizedIcon = (rawIcon ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedIcon = rawIcon.trimmingCharacters(in: .whitespacesAndNewlines)
         let newOption = ShiftOption(label: normalizedLabel, icon: normalizedIcon.isEmpty ? "🔁" : normalizedIcon)
         options.append(newOption)
         queue.append(newOption)
@@ -383,6 +371,73 @@ final class ShiftyApp: NSObject, NSApplicationDelegate {
         let response = alert.runModal()
         guard response == .alertFirstButtonReturn else { return nil }
         return field.stringValue
+    }
+
+    private func promptForNewOption() -> (String, String)? {
+        let alert = NSAlert()
+        alert.messageText = "Add Option"
+        alert.informativeText = "Add a new posture option."
+        alert.addButton(withTitle: "Add")
+        alert.addButton(withTitle: "Cancel")
+
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 360, height: 68))
+        let labelField = NSTextField(frame: .zero)
+        labelField.placeholderString = "Label (example: WALK)"
+        let iconField = NSTextField(frame: .zero)
+        iconField.placeholderString = "🚶"
+        iconField.alignment = .center
+        let emojiButton = NSButton(title: "😀", target: self, action: #selector(openEmojiPicker))
+        emojiButton.setButtonType(.momentaryPushIn)
+        emojiButton.bezelStyle = .rounded
+
+        let labelTitle = NSTextField(labelWithString: "Label")
+        let iconTitle = NSTextField(labelWithString: "Icon")
+        let row = NSStackView(views: [labelField, iconField, emojiButton])
+        row.orientation = .horizontal
+        row.spacing = 8
+        row.alignment = .centerY
+        row.distribution = .fill
+
+        let titles = NSStackView(views: [labelTitle, iconTitle])
+        titles.orientation = .horizontal
+        titles.spacing = 8
+        titles.distribution = .fillProportionally
+
+        let content = NSStackView(views: [titles, row])
+        content.orientation = .vertical
+        content.spacing = 6
+        content.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(content)
+
+        labelField.translatesAutoresizingMaskIntoConstraints = false
+        iconField.translatesAutoresizingMaskIntoConstraints = false
+        emojiButton.translatesAutoresizingMaskIntoConstraints = false
+
+        NSLayoutConstraint.activate([
+            content.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            content.topAnchor.constraint(equalTo: container.topAnchor),
+            content.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            labelField.widthAnchor.constraint(equalToConstant: 230),
+            iconField.widthAnchor.constraint(equalToConstant: 52),
+            emojiButton.widthAnchor.constraint(equalToConstant: 50)
+        ])
+
+        alert.accessoryView = container
+
+        NSApp.activate(ignoringOtherApps: true)
+        emojiTargetField = iconField
+        alert.window.initialFirstResponder = labelField
+        let response = alert.runModal()
+        emojiTargetField = nil
+        guard response == .alertFirstButtonReturn else { return nil }
+        return (labelField.stringValue, iconField.stringValue)
+    }
+
+    @objc private func openEmojiPicker() {
+        guard let field = emojiTargetField else { return }
+        field.window?.makeFirstResponder(field)
+        NSApp.orderFrontCharacterPalette(nil)
     }
 
     private func showAlert(title: String, message: String) {
