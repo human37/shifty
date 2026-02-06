@@ -25,6 +25,34 @@ brew services restart shifty
 brew services stop shifty
 ```
 
+## Configure options and interval
+
+Shifty writes config and runtime state here:
+
+```bash
+~/Library/Application\ Support/Shifty/config.json
+~/Library/Application\ Support/Shifty/state.json
+```
+
+Default `config.json` is:
+
+```json
+{
+  "options": [
+    { "label": "STAND", "icon": "🧍" },
+    { "label": "SIT", "icon": "💺" }
+  ],
+  "intervalMinMinutes": 50,
+  "intervalMaxMinutes": 70
+}
+```
+
+To add more options or change interval:
+1. Edit `config.json`.
+2. Restart service: `brew services restart shifty`.
+
+`state.json` persists current option, queue, and next-change timestamp, so after restart/login Shifty resumes the same option and same time window.
+
 ## Publish a new version
 
 Use the release script:

@@ -1,28 +1,60 @@
 import AppKit
 
-struct ShiftState {
+struct ShiftOption: Codable, Equatable {
     let label: String
     let icon: String
 }
 
-let states: [ShiftState] = [
-    ShiftState(label: "Stand", icon: "🧍"),
-    ShiftState(label: "Sit", icon: "💺"),
-    ShiftState(label: "Perch", icon: "🐦"),
-    ShiftState(label: "Stool", icon: "🪑"),
-]
+struct AppConfig: Codable {
+    let options: [ShiftOption]
+    let intervalMinMinutes: Int
+    let intervalMaxMinutes: Int
+}
+
+struct PersistedState: Codable {
+    let currentLabel: String
+    let queueLabels: [String]
+    let nextChange: Date
+}
 
 final class ShiftyApp: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private let menu = NSMenu()
     private let currentItem = NSMenuItem(title: "Current: --", action: nil, keyEquivalent: "")
     private let nextChangeItem = NSMenuItem(title: "Next change: --", action: nil, keyEquivalent: "")
+    private var options: [ShiftOption] = []
     private var currentLabel: String?
     private var nextChange = Date()
-    private var queue: [ShiftState] = []
+    private var queue: [ShiftOption] = []
     private var baseTitle = ""
     private var tickTimer: Timer?
     private var flashTimer: Timer?
+    private let fileManager = FileManager.default
+    private lazy var appSupportDirectory: URL = {
+        let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return base.appendingPathComponent("Shifty", isDirectory: true)
+    }()
+    private lazy var configURL: URL = appSupportDirectory.appendingPathComponent("config.json")
+    private lazy var stateURL: URL = appSupportDirectory.appendingPathComponent("state.json")
+    private let defaultConfig = AppConfig(
+        options: [
+            ShiftOption(label: "STAND", icon: "🧍"),
+            ShiftOption(label: "SIT", icon: "💺"),
+        ],
+        intervalMinMinutes: 50,
+        intervalMaxMinutes: 70
+    )
+    private lazy var decoder: JSONDecoder = {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
+    }()
+    private lazy var encoder: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return encoder
+    }()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -34,12 +66,106 @@ final class ShiftyApp: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q"))
         statusItem.menu = menu
 
-        setRandomState(initial: true)
+        let config = loadConfig()
+        options = normalizedOptions(from: config)
+        restoreOrInitializeState(config: config)
         tickTimer = Timer.scheduledTimer(timeInterval: 30, target: self, selector: #selector(tick), userInfo: nil, repeats: true)
     }
 
+    private func ensureAppSupportDirectory() {
+        try? fileManager.createDirectory(at: appSupportDirectory, withIntermediateDirectories: true)
+    }
+
+    private func normalizedOptions(from config: AppConfig) -> [ShiftOption] {
+        var seen = Set<String>()
+        let normalized = config.options.compactMap { option -> ShiftOption? in
+            let label = option.label.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            guard !label.isEmpty, !seen.contains(label) else { return nil }
+            seen.insert(label)
+            return ShiftOption(label: label, icon: option.icon.isEmpty ? "🔁" : option.icon)
+        }
+        return normalized.isEmpty ? defaultConfig.options : normalized
+    }
+
+    private func sanitizedIntervalRange(from config: AppConfig) -> ClosedRange<Int> {
+        let minMinutes = max(1, config.intervalMinMinutes)
+        let maxMinutes = max(minMinutes, config.intervalMaxMinutes)
+        return minMinutes...maxMinutes
+    }
+
+    private func loadConfig() -> AppConfig {
+        ensureAppSupportDirectory()
+        if let data = try? Data(contentsOf: configURL),
+           let config = try? decoder.decode(AppConfig.self, from: data) {
+            return config
+        }
+        saveConfig(defaultConfig)
+        return defaultConfig
+    }
+
+    private func saveConfig(_ config: AppConfig) {
+        ensureAppSupportDirectory()
+        if let data = try? encoder.encode(config) {
+            try? data.write(to: configURL, options: .atomic)
+        }
+    }
+
+    private func loadState() -> PersistedState? {
+        ensureAppSupportDirectory()
+        guard let data = try? Data(contentsOf: stateURL),
+              let state = try? decoder.decode(PersistedState.self, from: data) else {
+            return nil
+        }
+        return state
+    }
+
+    private func saveState() {
+        guard let currentLabel else { return }
+        ensureAppSupportDirectory()
+        let state = PersistedState(currentLabel: currentLabel, queueLabels: queue.map(\.label), nextChange: nextChange)
+        if let data = try? encoder.encode(state) {
+            try? data.write(to: stateURL, options: .atomic)
+        }
+    }
+
+    private func restoreOrInitializeState(config: AppConfig) {
+        if let state = loadState(),
+           let current = option(label: state.currentLabel) {
+            currentLabel = current.label
+            baseTitle = "\(current.icon) \(current.label)"
+            statusItem.button?.title = baseTitle
+            currentItem.title = "Current: \(current.label)"
+            queue = queueFromLabels(state.queueLabels)
+            nextChange = state.nextChange
+            refreshNextChangeMenu()
+            if Date() >= nextChange {
+                setRandomState(initial: false)
+            } else {
+                saveState()
+            }
+            return
+        }
+        setRandomState(initial: true)
+    }
+
+    private func option(label: String) -> ShiftOption? {
+        options.first(where: { $0.label == label.uppercased() })
+    }
+
+    private func queueFromLabels(_ labels: [String]) -> [ShiftOption] {
+        var used = Set<String>()
+        var result: [ShiftOption] = []
+        for label in labels {
+            guard let option = option(label: label), !used.contains(option.label) else { continue }
+            used.insert(option.label)
+            result.append(option)
+        }
+        let missing = options.filter { !used.contains($0.label) }.shuffled()
+        return result + missing
+    }
+
     private func refillQueue() {
-        var items = states.shuffled()
+        var items = options.shuffled()
         if let currentLabel, items.first?.label == currentLabel, items.count > 1 {
             items.swapAt(0, 1)
         }
@@ -53,14 +179,15 @@ final class ShiftyApp: NSObject, NSApplicationDelegate {
 
         let state = queue.removeFirst()
         currentLabel = state.label
-        baseTitle = "\(state.icon) \(state.label.uppercased())"
+        baseTitle = "\(state.icon) \(state.label)"
         statusItem.button?.title = baseTitle
-        currentItem.title = "Current: \(state.label.uppercased())"
+        currentItem.title = "Current: \(state.label)"
 
-        nextChange = Date().addingTimeInterval(Double(Int.random(in: 50...70) * 60))
-        let formatter = DateFormatter()
-        formatter.dateFormat = "hh:mm a"
-        nextChangeItem.title = "Next change: \(formatter.string(from: nextChange))"
+        let config = loadConfig()
+        let intervalRange = sanitizedIntervalRange(from: config)
+        nextChange = Date().addingTimeInterval(Double(Int.random(in: intervalRange) * 60))
+        refreshNextChangeMenu()
+        saveState()
 
         if !initial {
             sendNotification(body: baseTitle)
@@ -78,11 +205,17 @@ final class ShiftyApp: NSObject, NSApplicationDelegate {
 
     private func flashTitle() {
         guard let currentLabel else { return }
-        statusItem.button?.title = "⏰ \(currentLabel.uppercased())"
+        statusItem.button?.title = "⏰ \(currentLabel)"
         flashTimer?.invalidate()
         flashTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: false) { [weak self] _ in
             self?.statusItem.button?.title = self?.baseTitle ?? ""
         }
+    }
+
+    private func refreshNextChangeMenu() {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "hh:mm a"
+        nextChangeItem.title = "Next change: \(formatter.string(from: nextChange))"
     }
 
     @objc private func tick() {
