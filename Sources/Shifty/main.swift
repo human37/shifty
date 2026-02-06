@@ -281,11 +281,21 @@ final class ShiftyApp: NSObject, NSApplicationDelegate {
         alert.addButton(withTitle: confirmTitle)
         alert.addButton(withTitle: "Cancel")
 
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 24))
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 32))
+        let field = NSTextField(frame: .zero)
         field.placeholderString = placeholder
-        alert.accessoryView = field
+        field.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(field)
+        NSLayoutConstraint.activate([
+            field.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            field.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            field.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            field.heightAnchor.constraint(equalToConstant: 24)
+        ])
+        alert.accessoryView = container
 
         NSApp.activate(ignoringOtherApps: true)
+        alert.window.initialFirstResponder = field
         let response = alert.runModal()
         guard response == .alertFirstButtonReturn else { return nil }
         return field.stringValue
