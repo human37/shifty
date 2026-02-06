@@ -228,7 +228,22 @@ final class ShiftyApp: NSObject, NSApplicationDelegate {
         optionsSubmenu.removeAllItems()
         let addItem = NSMenuItem(title: "Add Option...", action: #selector(addOption), keyEquivalent: "")
         addItem.target = self
+        let removeItem = NSMenuItem(title: "Remove Option...", action: #selector(removeOption), keyEquivalent: "")
+        removeItem.target = self
+        let frequencyItem = NSMenuItem(title: "Set Frequency...", action: #selector(setFrequency), keyEquivalent: "")
+        frequencyItem.target = self
+        let config = loadConfig()
+        let frequencyStatusItem = NSMenuItem(
+            title: "Frequency: \(config.intervalMinMinutes)-\(config.intervalMaxMinutes) min",
+            action: nil,
+            keyEquivalent: ""
+        )
+        frequencyStatusItem.isEnabled = false
         optionsSubmenu.addItem(addItem)
+        optionsSubmenu.addItem(removeItem)
+        optionsSubmenu.addItem(frequencyItem)
+        optionsSubmenu.addItem(NSMenuItem.separator())
+        optionsSubmenu.addItem(frequencyStatusItem)
         optionsSubmenu.addItem(NSMenuItem.separator())
         for option in options {
             let item = NSMenuItem(title: "\(option.icon) \(option.label)", action: nil, keyEquivalent: "")
@@ -274,6 +289,75 @@ final class ShiftyApp: NSObject, NSApplicationDelegate {
         saveState()
     }
 
+    @objc private func removeOption() {
+        guard options.count > 1 else {
+            showAlert(title: "Cannot Remove Option", message: "At least one posture option is required.")
+            return
+        }
+
+        let rawLabel = promptForInput(
+            title: "Remove Option",
+            message: "Label to remove (example: SIT)",
+            confirmTitle: "Remove",
+            placeholder: options.last?.label ?? "SIT"
+        )
+        guard let rawLabel else { return }
+        let normalizedLabel = rawLabel.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard let index = options.firstIndex(where: { $0.label == normalizedLabel }) else {
+            showAlert(title: "Option Not Found", message: "No option named \(normalizedLabel).")
+            return
+        }
+
+        let removed = options.remove(at: index)
+        queue.removeAll(where: { $0.label == removed.label })
+        persistOptionsToConfig()
+        rebuildOptionsMenu()
+
+        if currentLabel == removed.label {
+            setRandomState(initial: true)
+            return
+        }
+
+        saveState()
+    }
+
+    @objc private func setFrequency() {
+        let existing = sanitizedIntervalRange(from: loadConfig())
+        let rawMin = promptForInput(
+            title: "Set Frequency",
+            message: "Minimum minutes between changes",
+            confirmTitle: "Next",
+            placeholder: "\(existing.lowerBound)"
+        )
+        guard let rawMin else { return }
+        guard let minMinutes = Int(rawMin.trimmingCharacters(in: .whitespacesAndNewlines)), minMinutes >= 1 else {
+            showAlert(title: "Invalid Minimum", message: "Minimum must be a whole number of at least 1.")
+            return
+        }
+
+        let rawMax = promptForInput(
+            title: "Set Frequency",
+            message: "Maximum minutes between changes",
+            confirmTitle: "Save",
+            placeholder: "\(max(existing.upperBound, minMinutes))"
+        )
+        guard let rawMax else { return }
+        guard let maxMinutes = Int(rawMax.trimmingCharacters(in: .whitespacesAndNewlines)), maxMinutes >= minMinutes else {
+            showAlert(title: "Invalid Maximum", message: "Maximum must be a whole number greater than or equal to minimum.")
+            return
+        }
+
+        saveConfig(AppConfig(
+            options: options,
+            intervalMinMinutes: minMinutes,
+            intervalMaxMinutes: maxMinutes
+        ))
+        nextChange = Date().addingTimeInterval(Double(Int.random(in: minMinutes...maxMinutes) * 60))
+        refreshNextChangeMenu()
+        rebuildOptionsMenu()
+        saveState()
+    }
+
     private func promptForInput(title: String, message: String, confirmTitle: String, placeholder: String) -> String? {
         let alert = NSAlert()
         alert.messageText = title
@@ -299,6 +383,15 @@ final class ShiftyApp: NSObject, NSApplicationDelegate {
         let response = alert.runModal()
         guard response == .alertFirstButtonReturn else { return nil }
         return field.stringValue
+    }
+
+    private func showAlert(title: String, message: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
     }
 
     @objc private func tick() {
