@@ -22,6 +22,8 @@ final class ShiftyApp: NSObject, NSApplicationDelegate {
     private let menu = NSMenu()
     private let currentItem = NSMenuItem(title: "Current: --", action: nil, keyEquivalent: "")
     private let nextChangeItem = NSMenuItem(title: "Next change: --", action: nil, keyEquivalent: "")
+    private let optionsMenuItem = NSMenuItem(title: "Options", action: nil, keyEquivalent: "")
+    private let optionsSubmenu = NSMenu()
     private var options: [ShiftOption] = []
     private var currentLabel: String?
     private var nextChange = Date()
@@ -63,11 +65,15 @@ final class ShiftyApp: NSObject, NSApplicationDelegate {
         menu.addItem(currentItem)
         menu.addItem(nextChangeItem)
         menu.addItem(NSMenuItem.separator())
+        optionsMenuItem.submenu = optionsSubmenu
+        menu.addItem(optionsMenuItem)
+        menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q"))
         statusItem.menu = menu
 
         let config = loadConfig()
         options = normalizedOptions(from: config)
+        rebuildOptionsMenu()
         restoreOrInitializeState(config: config)
         tickTimer = Timer.scheduledTimer(timeInterval: 30, target: self, selector: #selector(tick), userInfo: nil, repeats: true)
     }
@@ -216,6 +222,70 @@ final class ShiftyApp: NSObject, NSApplicationDelegate {
         let formatter = DateFormatter()
         formatter.dateFormat = "hh:mm a"
         nextChangeItem.title = "Next change: \(formatter.string(from: nextChange))"
+    }
+
+    private func rebuildOptionsMenu() {
+        optionsSubmenu.removeAllItems()
+        let addItem = NSMenuItem(title: "Add Option...", action: #selector(addOption), keyEquivalent: "")
+        addItem.target = self
+        optionsSubmenu.addItem(addItem)
+        optionsSubmenu.addItem(NSMenuItem.separator())
+        for option in options {
+            let item = NSMenuItem(title: "\(option.icon) \(option.label)", action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            optionsSubmenu.addItem(item)
+        }
+    }
+
+    private func persistOptionsToConfig() {
+        let config = loadConfig()
+        let updated = AppConfig(
+            options: options,
+            intervalMinMinutes: config.intervalMinMinutes,
+            intervalMaxMinutes: config.intervalMaxMinutes
+        )
+        saveConfig(updated)
+    }
+
+    @objc private func addOption() {
+        let alert = NSAlert()
+        alert.messageText = "Add Option"
+        alert.informativeText = "Add a new posture option."
+        alert.addButton(withTitle: "Add")
+        alert.addButton(withTitle: "Cancel")
+
+        let container = NSStackView()
+        container.orientation = .vertical
+        container.spacing = 8
+        container.alignment = .leading
+
+        let labelField = NSTextField(string: "")
+        labelField.placeholderString = "Label (example: WALK)"
+        labelField.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
+
+        let iconField = NSTextField(string: "")
+        iconField.placeholderString = "Icon (example: 🚶)"
+        iconField.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
+
+        container.addArrangedSubview(labelField)
+        container.addArrangedSubview(iconField)
+        alert.accessoryView = container
+
+        NSApp.activate(ignoringOtherApps: true)
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn else { return }
+
+        let normalizedLabel = labelField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard !normalizedLabel.isEmpty else { return }
+        guard option(label: normalizedLabel) == nil else { return }
+
+        let normalizedIcon = iconField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let newOption = ShiftOption(label: normalizedLabel, icon: normalizedIcon.isEmpty ? "🔁" : normalizedIcon)
+        options.append(newOption)
+        queue.append(newOption)
+        persistOptionsToConfig()
+        rebuildOptionsMenu()
+        saveState()
     }
 
     @objc private func tick() {

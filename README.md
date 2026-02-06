@@ -48,7 +48,7 @@ Default `config.json` is:
 ```
 
 To add more options or change interval:
-1. Edit `config.json`.
+1. Add options from menu: `Options` -> `Add Option...` (saved automatically), or edit `config.json` directly.
 2. Restart service: `brew services restart shifty`.
 
 `state.json` persists current option, queue, and next-change timestamp, so after restart/login Shifty resumes the same option and same time window.
