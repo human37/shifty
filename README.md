@@ -2,15 +2,11 @@
 
 Native macOS menu bar app that rotates posture prompts in the background.
 
-## Install with Homebrew
+## Public install via Homebrew
 
 ```bash
-brew install --HEAD ./Formula/shifty.rb
-```
-
-## Run as a background service
-
-```bash
+brew tap human37/shifty
+brew install shifty
 brew services start shifty
 ```
 
