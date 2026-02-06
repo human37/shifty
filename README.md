@@ -3,7 +3,7 @@
 A native macOS menu bar app that nudges you to change posture throughout the day, rotating between standing, sitting, and any custom positions you add on a configurable, randomized schedule, with notifications at each change.
 
 
-## Install (public)
+## Install
 
 ```bash
 brew tap human37/shifty
