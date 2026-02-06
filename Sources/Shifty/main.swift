@@ -259,13 +259,17 @@ final class ShiftyApp: NSObject, NSApplicationDelegate {
         container.spacing = 8
         container.alignment = .leading
 
-        let labelField = NSTextField(string: "")
+        let labelField = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
         labelField.placeholderString = "Label (example: WALK)"
-        labelField.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
+        labelField.isEditable = true
+        labelField.isBordered = true
+        labelField.drawsBackground = true
 
-        let iconField = NSTextField(string: "")
+        let iconField = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
         iconField.placeholderString = "Icon (example: 🚶)"
-        iconField.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
+        iconField.isEditable = true
+        iconField.isBordered = true
+        iconField.drawsBackground = true
 
         container.addArrangedSubview(labelField)
         container.addArrangedSubview(iconField)
