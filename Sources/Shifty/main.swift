@@ -248,48 +248,47 @@ final class ShiftyApp: NSObject, NSApplicationDelegate {
     }
 
     @objc private func addOption() {
-        let alert = NSAlert()
-        alert.messageText = "Add Option"
-        alert.informativeText = "Add a new posture option."
-        alert.addButton(withTitle: "Add")
-        alert.addButton(withTitle: "Cancel")
-
-        let container = NSStackView()
-        container.orientation = .vertical
-        container.spacing = 8
-        container.alignment = .leading
-
-        let labelField = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
-        labelField.placeholderString = "Label (example: WALK)"
-        labelField.isEditable = true
-        labelField.isBordered = true
-        labelField.drawsBackground = true
-
-        let iconField = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
-        iconField.placeholderString = "Icon (example: 🚶)"
-        iconField.isEditable = true
-        iconField.isBordered = true
-        iconField.drawsBackground = true
-
-        container.addArrangedSubview(labelField)
-        container.addArrangedSubview(iconField)
-        alert.accessoryView = container
-
-        NSApp.activate(ignoringOtherApps: true)
-        let response = alert.runModal()
-        guard response == .alertFirstButtonReturn else { return }
-
-        let normalizedLabel = labelField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        let rawLabel = promptForInput(
+            title: "Add Option",
+            message: "Label (example: WALK)",
+            confirmTitle: "Next",
+            placeholder: "WALK"
+        )
+        guard let rawLabel else { return }
+        let normalizedLabel = rawLabel.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         guard !normalizedLabel.isEmpty else { return }
         guard option(label: normalizedLabel) == nil else { return }
 
-        let normalizedIcon = iconField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawIcon = promptForInput(
+            title: "Add Option",
+            message: "Icon (optional, example: 🚶)",
+            confirmTitle: "Add",
+            placeholder: "🚶"
+        )
+        let normalizedIcon = (rawIcon ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let newOption = ShiftOption(label: normalizedLabel, icon: normalizedIcon.isEmpty ? "🔁" : normalizedIcon)
         options.append(newOption)
         queue.append(newOption)
         persistOptionsToConfig()
         rebuildOptionsMenu()
         saveState()
+    }
+
+    private func promptForInput(title: String, message: String, confirmTitle: String, placeholder: String) -> String? {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: confirmTitle)
+        alert.addButton(withTitle: "Cancel")
+
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 24))
+        field.placeholderString = placeholder
+        alert.accessoryView = field
+
+        NSApp.activate(ignoringOtherApps: true)
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn else { return nil }
+        return field.stringValue
     }
 
     @objc private func tick() {
