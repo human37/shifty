@@ -6,8 +6,8 @@ A native macOS menu bar app that nudges you to change posture throughout the day
 
 ```bash
 brew tap human37/shifty
-brew install shifty
-brew services start shifty
+brew install human37/shifty/shifty
+brew services start human37/shifty/shifty
 ```
 
 ## Install (local development)
