@@ -47,6 +47,8 @@ Default `config.json` is:
 }
 ```
 
+The menu bar shows the current option's label with a badge counting down the minutes to the next change.
+
 To add more options or change interval:
 1. Add options from menu: `Options` -> `Add Option...` (saved automatically), or edit `config.json` directly.
 2. Restart service: `brew services restart shifty`.

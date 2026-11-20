@@ -17,7 +17,7 @@ struct PersistedState: Codable {
     let nextChange: Date
 }
 
-final class ShiftyApp: NSObject, NSApplicationDelegate, NSTextFieldDelegate {
+final class ShiftyApp: NSObject, NSApplicationDelegate, NSTextFieldDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
     private let menu = NSMenu()
     private let currentItem = NSMenuItem(title: "Current: --", action: nil, keyEquivalent: "")
@@ -28,7 +28,6 @@ final class ShiftyApp: NSObject, NSApplicationDelegate, NSTextFieldDelegate {
     private var currentLabel: String?
     private var nextChange = Date()
     private var queue: [ShiftOption] = []
-    private var baseTitle = ""
     private var tickTimer: Timer?
     private var flashTimer: Timer?
     private weak var emojiTargetField: NSTextField?
@@ -72,12 +71,14 @@ final class ShiftyApp: NSObject, NSApplicationDelegate, NSTextFieldDelegate {
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q"))
         statusItem.menu = menu
+        menu.delegate = self
 
         let config = loadConfig()
         options = normalizedOptions(from: config)
         rebuildOptionsMenu()
         restoreOrInitializeState(config: config)
-        tickTimer = Timer.scheduledTimer(timeInterval: 30, target: self, selector: #selector(tick), userInfo: nil, repeats: true)
+        tickTimer = Timer.scheduledTimer(timeInterval: 60, target: self, selector: #selector(tick), userInfo: nil, repeats: true)
+        tickTimer?.tolerance = 10 // lets macOS coalesce wakeups
     }
 
     private func ensureAppSupportDirectory() {
@@ -140,12 +141,9 @@ final class ShiftyApp: NSObject, NSApplicationDelegate, NSTextFieldDelegate {
         if let state = loadState(),
            let current = option(label: state.currentLabel) {
             currentLabel = current.label
-            baseTitle = "\(current.icon) \(current.label)"
-            statusItem.button?.title = baseTitle
-            currentItem.title = "Current: \(current.label)"
             queue = queueFromLabels(state.queueLabels)
             nextChange = state.nextChange
-            refreshNextChangeMenu()
+            refreshStatus()
             if Date() >= nextChange {
                 setRandomState(initial: false)
             } else {
@@ -187,20 +185,17 @@ final class ShiftyApp: NSObject, NSApplicationDelegate, NSTextFieldDelegate {
 
         let state = queue.removeFirst()
         currentLabel = state.label
-        baseTitle = "\(state.icon) \(state.label)"
-        statusItem.button?.title = baseTitle
-        currentItem.title = "Current: \(state.label)"
 
         let config = loadConfig()
         let intervalRange = sanitizedIntervalRange(from: config)
         nextChange = Date().addingTimeInterval(Double(Int.random(in: intervalRange) * 60))
-        refreshNextChangeMenu()
         saveState()
 
         if !initial {
-            sendNotification(body: baseTitle)
+            sendNotification(body: state.label)
             flashTitle()
         }
+        refreshStatus()
     }
 
     private func sendNotification(body: String) {
@@ -212,18 +207,47 @@ final class ShiftyApp: NSObject, NSApplicationDelegate, NSTextFieldDelegate {
     }
 
     private func flashTitle() {
-        guard let currentLabel else { return }
-        statusItem.button?.title = "⏰ \(currentLabel)"
         flashTimer?.invalidate()
         flashTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: false) { [weak self] _ in
-            self?.statusItem.button?.title = self?.baseTitle ?? ""
+            self?.flashTimer = nil
+            self?.refreshStatus()
         }
     }
 
-    private func refreshNextChangeMenu() {
+    // Pose name followed by a filled pill with the countdown cut out of it; template so it follows the menu bar colour.
+    private func badgeImage(name: String, badge: String) -> NSImage {
+        let nameAttrs: [NSAttributedString.Key: Any] = [.font: NSFont.menuBarFont(ofSize: 0)]
+        let badgeAttrs: [NSAttributedString.Key: Any] = [.font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold)]
+        let nameSize = (name as NSString).size(withAttributes: nameAttrs)
+        let badgeSize = (badge as NSString).size(withAttributes: badgeAttrs)
+        let pill = NSRect(x: ceil(nameSize.width) + 5, y: 1.5, width: ceil(badgeSize.width) + 10, height: 15)
+        let image = NSImage(size: NSSize(width: pill.maxX, height: 18), flipped: false) { _ in
+            (name as NSString).draw(at: NSPoint(x: 0, y: (18 - nameSize.height) / 2), withAttributes: nameAttrs)
+            NSColor.black.setFill()
+            NSBezierPath(roundedRect: pill, xRadius: 5, yRadius: 5).fill()
+            NSGraphicsContext.current?.cgContext.setBlendMode(.destinationOut)
+            (badge as NSString).draw(at: NSPoint(x: pill.midX - badgeSize.width / 2, y: pill.midY - badgeSize.height / 2), withAttributes: badgeAttrs)
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }
+
+    private func refreshStatus() {
+        guard let current = currentLabel.flatMap(option(label:)) else { return }
+        let countdown = "\(max(0, Int((nextChange.timeIntervalSinceNow / 60).rounded(.up))))m"
+        // The badge reads NOW for a few seconds after a change.
+        let image = badgeImage(name: current.label, badge: flashTimer == nil ? countdown : "NOW")
+        image.accessibilityDescription = "\(current.label), next change in \(countdown)"
+        statusItem.button?.image = image
+        currentItem.title = "Current: \(current.label)"
         let formatter = DateFormatter()
-        formatter.dateFormat = "hh:mm a"
-        nextChangeItem.title = "Next change: \(formatter.string(from: nextChange))"
+        formatter.dateFormat = "h:mm a"
+        nextChangeItem.title = "Next change: \(formatter.string(from: nextChange)) (\(countdown))"
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        refreshStatus()
     }
 
     private func rebuildOptionsMenu() {
@@ -342,7 +366,7 @@ final class ShiftyApp: NSObject, NSApplicationDelegate, NSTextFieldDelegate {
             intervalMaxMinutes: maxMinutes
         ))
         nextChange = Date().addingTimeInterval(Double(Int.random(in: minMinutes...maxMinutes) * 60))
-        refreshNextChangeMenu()
+        refreshStatus()
         rebuildOptionsMenu()
         saveState()
     }
@@ -473,6 +497,8 @@ final class ShiftyApp: NSObject, NSApplicationDelegate, NSTextFieldDelegate {
     @objc private func tick() {
         if Date() >= nextChange {
             setRandomState(initial: false)
+        } else {
+            refreshStatus()
         }
     }
 
